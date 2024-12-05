@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - aws-docker-1
+  workflow_dispatch: # Add manual trigger
 
 env:
   AWS_REGION: us-east-1
