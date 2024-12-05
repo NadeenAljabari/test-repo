@@ -1,0 +1,42 @@
+name: Build and Push Nakama to Amazon ECR
+
+on: 
+  push:
+    branches:
+      - aws-docker-1
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: test-nakama
+
+permissions:
+  id-token: write
+  contents: read
+  
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1.7.0
+        with:
+          role-to-assume: arn:aws:iam::050286875379:role/github-action # Update IAM role ARN
+          role-session-name: GitHub_to_AWS_via_FederatedOIDC
+          aws-region: us-east-1
+
+      - name: Login to AWS ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build and push Docker image (test-nakama)
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker build -t test-nakama .
+          docker tag test-nakama:latest 050286875379.dkr.ecr.us-east-1.amazonaws.com/test-nakama:latest
+          docker push 050286875379.dkr.ecr.us-east-1.amazonaws.com/test-nakama:latest
