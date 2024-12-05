@@ -3,7 +3,7 @@ name: Build and Push Nakama to Amazon ECR
 on: 
   push:
     branches:
-      - aws-docker-1
+      - main
   workflow_dispatch: # Add manual trigger
 
 env:
