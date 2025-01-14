@@ -4,19 +4,19 @@ name: Build, Push to ECR, and Deploy to EKS
 on:
   push:
     branches:
-      - 'development/**'  
-      - 'release/**'      
-  workflow_dispatch:       # Allows manual triggering of the workflow
+      - 'development/*'  # Matches any development branch like development/feature-1
+      - 'release/*'      # Matches any release branch like release/v1
+  workflow_dispatch:  # Allows manual triggering of the workflow
 
 # Define permissions for GitHub Actions
 permissions:
-  id-token: write  
-  contents: read   
+  id-token: write
+  contents: read
 
 # Global environment variables
 env:
-  AWS_REGION: us-east-1        
-  ECR_REPOSITORY: nakama-server # Default ECR repository name
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: nakama-server  # Default ECR repository name
 
 # Job: Build Docker image and push to ECR
 jobs:
@@ -59,7 +59,7 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
           # Determine image name based on branch type
-          IMAGE_NAME=${{ github.ref_name == 'development' && 'nakama-server' || 'nakama-production' }}
+          IMAGE_NAME=${{ github.ref_name == 'development' || startsWith(github.ref_name, 'development/') && 'nakama-server' || 'nakama-production' }}
           IMAGE_TAG=latest
 
           # Build, tag, and push the Docker image
@@ -75,7 +75,7 @@ jobs:
         env:
           CLUSTER_NAME: eks-cluster-Arvis
           AWS_REGION: us-east-1
-          ECR_IMAGE: 050286875379.dkr.ecr.us-east-1.amazonaws.com/nakama-server:latest
+          ECR_IMAGE: ${{ env.ECR_REGISTRY }}/$IMAGE_NAME:$IMAGE_TAG
           DEPLOYMENT_NAME: nakama-prod
           K8S_NAMESPACE: default
         run: |
