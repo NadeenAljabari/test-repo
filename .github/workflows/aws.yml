@@ -1,49 +1,95 @@
-name: Deploy image to ECR, update Kubernetes deployment
 
+name: Build, Push to ECR, and Deploy to EKS
+
+# Trigger workflow on push to specific branches or manual dispatch
 on:
   push:
     branches:
-      - development/feature-1
-      - release/v1
+      - 'development/**'  
+      - 'release/**'      
+  workflow_dispatch:       # Allows manual triggering of the workflow
 
+# Define permissions for GitHub Actions
+permissions:
+  id-token: write  
+  contents: read   
+
+# Global environment variables
+env:
+  AWS_REGION: us-east-1        
+  ECR_REPOSITORY: nakama-server # Default ECR repository name
+
+# Job: Build Docker image and push to ECR
 jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
-
+  build:
+    name: Build and Push Docker Image to ECR
+    runs-on: ubuntu-latest  # Use the latest Ubuntu environment
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    - name: Configure AWS credentials using IAM Role
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        aws-region: us-east-1
-        role-to-assume: arn:aws:iam::050286875379:role/github-action
-        role-session-name: GitHubActions # or 'GitHub_to_AWS_via_FederatedOIDC' if first one is not working
+      # Step 1: Check out the repository code
+      - name: Checkout Code
+        uses: actions/checkout@v3
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      # Step 2: Configure AWS credentials for authentication
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1.7.0
+        with:
+          role-to-assume: arn:aws:iam::050286875379:role/github-action
+          role-session-name: GitHub_to_AWS_via_FederatedOIDC
+          aws-region: ${{ env.AWS_REGION }}
 
-    - name: Log in to Amazon ECR
-      id: login-ecr
-      uses: aws-actions/amazon-ecr-login@v2
+      # Step 3: Login to Amazon ECR
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
 
-    - name: Build, tag, and push image to Amazon ECR
-      run: |
-        docker build -t nakama-server .
-        docker tag nakama-server:latest 050286875379.dkr.ecr.us-east-1.amazonaws.com/nakama-server:latest
-        docker push 050286875379.dkr.ecr.us-east-1.amazonaws.com/nakama-server:latest
+      # Step 4: Build and push Docker image to ECR
+      - name: Build and Push Docker Image
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          # Determine image name based on branch type
+          IMAGE_NAME=${{ github.ref_name == 'development' && 'nakama-server' || 'nakama-production' }}
+          IMAGE_TAG=latest
 
-        echo "::set-output name=image::050286875379.dkr.ecr.us-east-1.amazonaws.com/nakama-server:latest
+          # Build, tag, and push the Docker image
+          docker build -t $IMAGE_NAME:$IMAGE_TAG .
+          docker tag $IMAGE_NAME:$IMAGE_TAG $ECR_REGISTRY/$IMAGE_NAME:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$IMAGE_NAME:$IMAGE_TAG
 
-    - name: Update Kubernetes deployment
-      env:
-        EKS_CLUSTER_NAME: eks-cluster-Arvis
-        AWS_REGION: us-east-1
-        ECR_IMAGE: 050286875379.dkr.ecr.us-east-1.amazonaws.com/nakama-server:latest
-      run: |
-        aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region us-east-1
-        kubectl set image deployment/nakama-prod nakama-prod=${{ env.ECR_IMAGE }}
-        kubectl rollout restart deployment/nakama-prod -n default
+          # Save the image URI for the deploy job
+          echo "IMAGE_URI=$ECR_REGISTRY/$IMAGE_NAME:$IMAGE_TAG" >> $GITHUB_ENV
+    outputs:
+      image_uri: ${{ env.IMAGE_URI }}  # Output the image URI for downstream jobs
+
+  # Job: Deploy the Docker image to EKS
+  deploy:
+    name: Deploy to EKS
+    runs-on: ubuntu-latest
+    needs: build  # Wait for the build job to finish
+    steps:
+      # Step 1: Configure AWS credentials for authentication
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1.7.0
+        with:
+          role-to-assume: arn:aws:iam::050286875379:role/github-action
+          role-session-name: GitHub_to_AWS_via_FederatedOIDC
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Step 2: Update kubeconfig to interact with the correct EKS cluster
+      - name: Update kubeconfig for EKS
+        run: |
+          # Determine EKS cluster name based on branch type
+          CLUSTER_NAME=${{ github.ref_name == 'development' && 'eks-cluster-Arvis' || 'eks-cluster-Arvis-prod' }}
+          aws eks update-kubeconfig --name $CLUSTER_NAME --region ${{ env.AWS_REGION }}
+
+      # Step 3: Deploy the new Docker image to Kubernetes
+      - name: Deploy New Image to Kubernetes
+        env:
+          ECR_IMAGE: ${{ needs.build.outputs.image_uri }}  # Image URI from the build job
+          K8S_NAMESPACE: default                          # Kubernetes namespace
+          DEPLOYMENT_NAME: ${{ github.ref_name == 'development' && 'nakama-prod' || 'nakama-prod-1' }}  # Deployment name
+        run: |
+          kubectl set image deployment/${DEPLOYMENT_NAME} nakama-prod=${ECR_IMAGE} -n ${K8S_NAMESPACE}
+          kubectl rollout restart deployment/${DEPLOYMENT_NAME} -n ${K8S_NAMESPACE}
+          kubectl rollout status deployment/${DEPLOYMENT_NAME} -n ${K8S_NAMESPACE}
