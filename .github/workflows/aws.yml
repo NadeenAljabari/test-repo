@@ -77,6 +77,8 @@ jobs:
           AWS_REGION: us-east-1
           ECR_IMAGE: 050286875379.dkr.ecr.us-east-1.amazonaws.com/nakama-server:latest
           DEPLOYMENT_NAME: nakama-prod
+          K8S_NAMESPACE: default
         run: |
           kubectl set image deployment/${{ env.DEPLOYMENT_NAME }} nakama-prod=${{ env.ECR_IMAGE }}
-          kubectl rollout status deployment/${{ env.DEPLOYMENT_NAME }}
+          kubectl rollout restart deployment/${DEPLOYMENT_NAME} -n ${K8S_NAMESPACE}
+          kubectl rollout status deployment/${{ env.DEPLOYMENT_NAME }} -n ${K8S_NAMESPACE}
