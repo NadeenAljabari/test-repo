@@ -90,7 +90,7 @@ jobs:
           K8S_NAMESPACE: default                          # Kubernetes namespace
           DEPLOYMENT_NAME: ${{ github.ref_name == 'development' && 'nakama-prod' || 'nakama-prod-1' }}  # Deployment name
         run: |
-          kubectl set image deployment/${DEPLOYMENT_NAME} nakama-container=${ECR_IMAGE} -n ${K8S_NAMESPACE}
+          kubectl set image deployment/${DEPLOYMENT_NAME} nakama-prod=${ECR_IMAGE} -n ${K8S_NAMESPACE}
           kubectl rollout restart deployment/${DEPLOYMENT_NAME} -n ${K8S_NAMESPACE}
           kubectl rollout status deployment/${DEPLOYMENT_NAME} -n ${K8S_NAMESPACE}
 
